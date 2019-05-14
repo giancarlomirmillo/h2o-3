@@ -164,7 +164,7 @@ public class VecTest extends TestUtil {
   }
 
   @Test public void testChunkForChunkIdxMRTask() {
-    Assume.assumeTrue(H2O.getCloudSize() > 0);
+    Assume.assumeTrue(H2O.getCloudSize() > 1);
     try {
       Scope.enter();
       Vec v = Scope.track(makeConN((long) 1e6, 16));
