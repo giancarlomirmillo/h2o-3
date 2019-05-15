@@ -206,6 +206,9 @@ subprojects {
     version = rootProject.version
 
     repositories {
+        maven {
+            url "${localNexusLocation}/snapshots"
+        }
         if (project.hasProperty("enableMavenLocal")) { // useful for development
             mavenLocal()
         }
