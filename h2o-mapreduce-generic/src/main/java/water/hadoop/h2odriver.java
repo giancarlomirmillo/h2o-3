@@ -104,7 +104,8 @@ public class h2odriver extends Configured implements Tool {
   static String mapperXmx = null;
   static int extraMemPercent = -1;            // Between 0 and 10, typically.  Cannot be negative.
   static String mapperPermSize = null;
-  static String driverCallbackIp = null;
+  static String driverCallbackBindIp = null;
+  static String driverCallbackPublicIp = null;
   static int driverCallbackPort = 0;          // By default, let the system pick the port.
   static PortRange driverCallbackPortRange = null;
   static String network = null;
@@ -856,9 +857,13 @@ public class h2odriver extends Configured implements Tool {
         i++; if (i >= args.length) { usage(); }
         mapperPermSize = args[i];
       }
+      else if (s.equals("-extdriverif")) {
+        i++; if (i >= args.length) { usage(); }
+        driverCallbackPublicIp = args[i];
+      }
       else if (s.equals("-driverif")) {
         i++; if (i >= args.length) { usage(); }
-        driverCallbackIp = args[i];
+        driverCallbackBindIp = args[i];
       }
       else if (s.equals("-driverport")) {
         i++; if (i >= args.length) { usage(); }
@@ -1185,17 +1190,17 @@ public class h2odriver extends Configured implements Tool {
     }
   }
 
-  static String calcMyIp() throws Exception {
+  static String calcMyIp(String externalIp) throws Exception {
     Enumeration nis = NetworkInterface.getNetworkInterfaces();
 
-    System.out.println("Determining driver host interface for mapper->driver callback...");
+    System.out.println("Determining driver " + (externalIp != null ? "(internal) " : "") +  "host interface for mapper->driver callback...");
     while (nis.hasMoreElements()) {
       NetworkInterface ni = (NetworkInterface) nis.nextElement();
       Enumeration ias = ni.getInetAddresses();
       while (ias.hasMoreElements()) {
         InetAddress ia = (InetAddress) ias.nextElement();
         String s = ia.getHostAddress();
-        System.out.println("    [Possible callback IP address: " + s + "]");
+        System.out.println("    [Possible callback IP address: " + s + " " + (externalIp != null ? "; external IP specified: " + externalIp : "") + "]");
       }
     }
 
@@ -1371,7 +1376,7 @@ public class h2odriver extends Configured implements Tool {
     for (int p = driverCallbackPortRange.from; (result == null) && (p <= driverCallbackPortRange.to); p++) {
       ServerSocket ss = new ServerSocket();
       ss.setReuseAddress(true);
-      InetSocketAddress sa = new InetSocketAddress(driverCallbackIp, p);
+      InetSocketAddress sa = new InetSocketAddress(driverCallbackBindIp, p);
       try {
         int backlog = Math.max(50, numNodes * 3); // minimum 50 (bind's default) or numNodes * 3 (safety constant, arbitrary)
         ss.bind(sa, backlog);
@@ -1419,8 +1424,11 @@ public class h2odriver extends Configured implements Tool {
 
     // Set up callback address and port.
     // ---------------------------------
-    if (driverCallbackIp == null) {
-      driverCallbackIp = calcMyIp();
+    if (driverCallbackBindIp == null) {
+      driverCallbackBindIp = calcMyIp(driverCallbackPublicIp);
+    }
+    if (driverCallbackPublicIp == null) {
+      driverCallbackPublicIp = driverCallbackBindIp;
     }
     if (driverCallbackPortRange == null) {
       driverCallbackPortRange = new PortRange(driverCallbackPort, driverCallbackPort);
@@ -1430,8 +1438,9 @@ public class h2odriver extends Configured implements Tool {
     CallbackManager cm = new CallbackManager();
     cm.setServerSocket(driverCallbackSocket);
     cm.start();
-    System.out.println("Using mapper->driver callback IP address and port: " + driverCallbackIp + ":" + actualDriverCallbackPort);
-    System.out.println("(You can override these with -driverif and -driverport/-driverportrange.)");
+    System.out.println("Using mapper->driver callback IP address and port: " + driverCallbackPublicIp + ":" + actualDriverCallbackPort + 
+            (!driverCallbackBindIp.equals(driverCallbackPublicIp) ? "(internal callback address: " + driverCallbackBindIp + ":" + actualDriverCallbackPort + ")" : ""));
+    System.out.println("(You can override these with -driverif and -driverport/-driverportrange and/or specify external IP using -extdriverif.)");
 
     // Set up configuration.
     // ---------------------
@@ -1535,7 +1544,7 @@ public class h2odriver extends Configured implements Tool {
       conf.set("mapred.job.reuse.jvm.num.tasks", "1");
     }
 
-    conf.set(h2omapper.H2O_DRIVER_IP_KEY, driverCallbackIp);
+    conf.set(h2omapper.H2O_DRIVER_IP_KEY, driverCallbackPublicIp);
     conf.set(h2omapper.H2O_DRIVER_PORT_KEY, Integer.toString(actualDriverCallbackPort));
 
     // Arguments.
